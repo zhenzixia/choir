@@ -1,6 +1,6 @@
 // +build netgo
 
-package audio
+package choir
 
 import (
 	"log"

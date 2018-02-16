@@ -1,8 +1,6 @@
 // +build !windows,!netgo
 
-package audio
-
-// Taken from golang.org/x/mobile/exp/audio
+package choir
 
 import (
 	"bytes"
@@ -21,7 +19,7 @@ import (
 type Format int
 
 const (
-	Mono8 Format = iota + 1
+	Mono8    Format = iota + 1
 	Mono16
 	Stereo8
 	Stereo16
@@ -147,6 +145,7 @@ func NewSimplePlayer(src string) (*Player, error) {
 	return NewPlayer(&readSeekCloserBuffer{buf}, 0, 0)
 }
 
+
 // headerSize is the size of WAV headers.
 // See http://www.topherlee.com/software/pcm-tut-wavformat.html.
 const headerSize = 44
@@ -193,6 +192,22 @@ func (p *Player) discoverHeader() error {
 		return fmt.Errorf("audio: given sample rate %v does not match header %v", p.t.samplesPerSecond, sampleRate)
 	}
 	return nil
+}
+
+type Source struct {
+	Src string
+}
+
+func (p *Player) Run(srcChl chan Source, stopChl chan error) {
+	for {
+		select {
+		case s := <-srcChl:
+			p.SetSource(s.Src)
+			p.MyPlay()
+		case <-stopChl:
+			return
+		}
+	}
 }
 
 func (p *Player) Prepare(background bool, offset int64, force bool) error {
@@ -315,6 +330,8 @@ func (p *Player) Seek(background bool, offset time.Duration) error {
 	return lastErr()
 }
 
+
+//TODO error occurs here
 // Current returns the current playback position of the audio that is being played.
 func (p *Player) Current() time.Duration {
 	if p == nil {
@@ -380,6 +397,16 @@ func (p *Player) Close() error {
 	return nil
 }
 
+func (p *Player) SetSource(src string) error {
+	b, err := ioutil.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	buf := bytes.NewReader(b)
+	p.t.src = &readSeekCloserBuffer{buf}
+	return nil
+}
+
 func (p *Player) Source() al.Source {
 	return p.source
 }
@@ -406,3 +433,55 @@ func Preload() error {
 }
 
 // TODO(jbd): Close the device.
+
+
+
+func NewMySimplePlayer(src string) (*Player, error) {
+	err := Preload()
+	if err != nil {
+		return &Player{}, nil
+	}
+
+	al.SetListenerPosition(al.Vector{0, 0, 0})
+
+	return NewMyPlayer(&readSeekCloserBuffer{}, 0, 0)
+}
+
+func NewMyPlayer(src ReadSeekCloser, format Format, samplesPerSecond int64) (*Player, error) {
+	s := al.GenSources(1)
+	if code := al.Error(); code != 0 {
+		return nil, fmt.Errorf("audio: cannot generate an audio source [err=%x]", code)
+	}
+	p := &Player{
+		t:      &track{format: format, src: src, samplesPerSecond: samplesPerSecond},
+		source: s[0],
+	}
+	return p, nil
+}
+
+// Play buffers the source audio to the audio device and starts
+// to play the source.
+// If the player paused or stopped, it reuses the previously buffered
+// resources to keep playing from the time it has paused or stopped.
+func (p *Player) MyPlay() error {
+	if p == nil {
+		return nil
+	}
+
+	if err := p.discoverHeader(); err != nil {
+		return err
+	}
+	if p.t.format == 0 {
+		return errors.New("audio: cannot determine the format")
+	}
+	if p.t.samplesPerSecond == 0 {
+		return errors.New("audio: cannot determine the sample rate")
+	}
+
+	// Prepares if the track hasn't been buffered before.
+	if err := p.prepare(p.background, 0, false); err != nil {
+		return err
+	}
+	al.PlaySources(p.source)
+	return lastErr()
+}

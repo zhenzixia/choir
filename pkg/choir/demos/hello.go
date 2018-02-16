@@ -5,15 +5,19 @@ import (
 	"runtime"
 	"time"
 
-	"engo.io/audio"
+	"choir/pkg/choir"
 )
 
 func main() {
-	player, err := audio.NewSimplePlayer("/Users/zixiazhen/work/src/audio/demos/assets/birds.wav")
+	player, err := choir.NewMySimplePlayer("")
 	if err != nil {
 		panic(err)
 	}
-	player.Play()
+	//player.Play()
+
+	srcChl := make(chan choir.Source)
+	stopChl := make(chan error)
+	go player.Run(srcChl, stopChl)
 
 	fmt.Println("Volume: ", player.Volume())
 	time.Sleep(time.Second * 5)
@@ -23,7 +27,14 @@ func main() {
 
 	fmt.Println("Volume: ", player.Volume())
 
-	player.Current()
+
+	//input a source
+	source := choir.Source{
+		Src: "/Users/zixiazhen/work/src/choir/pkg/choir/demos/assets/birds.wav",
+	}
+	srcChl <- source
+
+	//player.Current()
 	if runtime.GOARCH != "js" {
 		for {
 			time.Sleep(time.Hour)
